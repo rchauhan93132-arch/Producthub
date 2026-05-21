@@ -1,0 +1,18 @@
+[
+  {
+    "id": "ORD-D858D333",
+    "customer": "raj",
+    "staffId": "S1",
+    "staffName": "Ravi",
+    "items": [
+      {
+        "id": "P101",
+        "name": "Laptop",
+        "qty": 1,
+        "price": 50000
+      }
+    ],
+    "total": 50000,
+    "date": "2026-05-20T18:04:38.345Z"
+  }
+]

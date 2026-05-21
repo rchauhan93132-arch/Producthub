@@ -1,0 +1,82 @@
+{
+  "P101": {
+    "name": "Laptop",
+    "price": 50000,
+    "quantity": 9
+  },
+  "P102": {
+    "name": "Smartphone",
+    "price": 25000,
+    "quantity": 15
+  },
+  "P103": {
+    "name": "Keyboard",
+    "price": 700,
+    "quantity": 40
+  },
+  "P104": {
+    "name": "Mouse",
+    "price": 500,
+    "quantity": 50
+  },
+  "P105": {
+    "name": "Headphones",
+    "price": 1500,
+    "quantity": 25
+  },
+  "P106": {
+    "name": "Printer",
+    "price": 9000,
+    "quantity": 8
+  },
+  "P107": {
+    "name": "Monitor",
+    "price": 12000,
+    "quantity": 12
+  },
+  "P108": {
+    "name": "Webcam",
+    "price": 2500,
+    "quantity": 20
+  },
+  "P109": {
+    "name": "USB Flash Drive",
+    "price": 600,
+    "quantity": 60
+  },
+  "P110": {
+    "name": "External Hard Disk",
+    "price": 5500,
+    "quantity": 18
+  },
+  "P111": {
+    "name": "Graphics Card",
+    "price": 15000,
+    "quantity": 5
+  },
+  "P112": {
+    "name": "RAM",
+    "price": 4000,
+    "quantity": 30
+  },
+  "P113": {
+    "name": "Motherboard",
+    "price": 8000,
+    "quantity": 10
+  },
+  "P114": {
+    "name": "Power Supply Unit",
+    "price": 3500,
+    "quantity": 20
+  },
+  "P115": {
+    "name": "CPU",
+    "price": 20000,
+    "quantity": 7
+  },
+  "P116": {
+    "name": "raj",
+    "price": 1000,
+    "quantity": 5
+  }
+}
