@@ -5,7 +5,7 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 // ── Middleware ─────────────────────────────────────────────────────────────
 app.use(cors());
@@ -23,7 +23,7 @@ function read(file)       { return JSON.parse(fs.readFileSync(DATA[file], 'utf8'
 function write(file, data){ fs.writeFileSync(DATA[file], JSON.stringify(data, null, 2)); }
 
 // ── Auth ───────────────────────────────────────────────────────────────────
-const ADMIN_PASSWORD = 'admin123';
+const ADMIN_PASSWORD = 'raj123';
 const lockoutStore   = {};   // ip → { attempts, lockedUntil }
 
 app.post('/api/auth/login', (req, res) => {
