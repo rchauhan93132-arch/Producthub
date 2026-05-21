@@ -171,5 +171,10 @@ app.get('/api/stats', (_req, res) => {
   res.json({ totalProducts, inventoryValue, lowStock, totalOrders, totalRevenue, staffCount });
 });
 
+// Serve frontend
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 // ── Start ─────────────────────────────────────────────────────────────────
 app.listen(PORT, () => console.log(`✅  ProductHub running → http://localhost:${PORT}`));
