@@ -1,177 +1,90 @@
+const express = require('express');
+const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
+const { v4: uuidv4 } = require('uuid');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.static(__dirname));
 
+// Homepage
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// ── Data helpers ───────────────────────────────────────────────────────────
+// Data paths
 const DATA = {
-  products: path.join(__dirname, 'data/products.json'),
-  orders:   path.join(__dirname, 'data/orders.json'),
-  staff:    path.join(__dirname, 'data/staff.json'),
+  products: path.join(__dirname, 'products.json'),
+  orders: path.join(__dirname, 'orders.json'),
+  staff: path.join(__dirname, 'staff.json'),
 };
 
-function read(file)       { return JSON.parse(fs.readFileSync(DATA[file], 'utf8')); }
-function write(file, data){ fs.writeFileSync(DATA[file], JSON.stringify(data, null, 2)); }
+// Read helper
+function read(file) {
+  return JSON.parse(fs.readFileSync(DATA[file], 'utf8'));
+}
 
-// ── Auth ───────────────────────────────────────────────────────────────────
+// Write helper
+function write(file, data) {
+  fs.writeFileSync(DATA[file], JSON.stringify(data, null, 2));
+}
+
+// Admin password
 const ADMIN_PASSWORD = 'raj123';
-const lockoutStore   = {};   // ip → { attempts, lockedUntil }
 
+// Login API
 app.post('/api/auth/login', (req, res) => {
-  const ip  = req.ip;
-  const now = Date.now();
-
-  if (!lockoutStore[ip]) lockoutStore[ip] = { attempts: 0, lockedUntil: 0 };
-  const rec = lockoutStore[ip];
-
-  if (rec.lockedUntil > now) {
-    const remaining = Math.ceil((rec.lockedUntil - now) / 1000);
-    return res.status(429).json({ success: false, message: `Locked. Try again in ${remaining}s.`, remaining });
-  }
-
   const { password } = req.body;
+
   if (password === ADMIN_PASSWORD) {
-    rec.attempts   = 0;
-    rec.lockedUntil = 0;
-    return res.json({ success: true, token: 'mgr-' + uuidv4() });
+    return res.json({
+      success: true,
+      token: uuidv4(),
+    });
   }
 
-  rec.attempts++;
-  if (rec.attempts >= 3) {
-    rec.lockedUntil = now + 60_000;
-    rec.attempts    = 0;
-    return res.status(401).json({ success: false, message: 'Too many attempts! Locked for 60s.', locked: true });
-  }
-
-  res.status(401).json({ success: false, message: `Wrong password. Attempt ${rec.attempts}/3.` });
+  return res.status(401).json({
+    success: false,
+    message: 'Invalid password',
+  });
 });
 
-// ── Products ───────────────────────────────────────────────────────────────
-app.get('/api/products', (_req, res) => {
+// Products API
+app.get('/api/products', (req, res) => {
   res.json(read('products'));
 });
 
-app.post('/api/products', (req, res) => {
-  const { name, price, quantity } = req.body;
-  if (!name || price == null || quantity == null)
-    return res.status(400).json({ success: false, message: 'Missing fields.' });
-
-  const products = read('products');
-  const existing = Object.keys(products).map(k => parseInt(k.slice(1))).sort((a,b)=>b-a);
-  const nextNum  = (existing[0] || 100) + 1;
-  const id       = 'P' + nextNum;
-
-  products[id] = { name: name.trim(), price: +price, quantity: +quantity };
-  write('products', products);
-  res.json({ success: true, id, product: products[id] });
-});
-
-app.put('/api/products/:id', (req, res) => {
-  const products = read('products');
-  const { id }   = req.params;
-  if (!products[id]) return res.status(404).json({ success: false, message: 'Product not found.' });
-
-  const { name, price, quantity } = req.body;
-  if (name     != null) products[id].name     = name.trim();
-  if (price    != null) products[id].price    = +price;
-  if (quantity != null) products[id].quantity = +quantity;
-
-  write('products', products);
-  res.json({ success: true, product: products[id] });
-});
-
-app.delete('/api/products/:id', (req, res) => {
-  const products = read('products');
-  const { id }   = req.params;
-  if (!products[id]) return res.status(404).json({ success: false, message: 'Product not found.' });
-
-  const name = products[id].name;
-  delete products[id];
-  write('products', products);
-  res.json({ success: true, message: `"${name}" deleted.` });
-});
-
-// ── Staff ──────────────────────────────────────────────────────────────────
-app.get('/api/staff', (_req, res) => {
-  res.json(read('staff'));
-});
-
-// ── Orders ────────────────────────────────────────────────────────────────
-app.get('/api/orders', (_req, res) => {
+// Orders API
+app.get('/api/orders', (req, res) => {
   res.json(read('orders'));
 });
 
-app.post('/api/orders', (req, res) => {
-  const { customer, staffId, items } = req.body;
-  if (!customer || !staffId || !items?.length)
-    return res.status(400).json({ success: false, message: 'Missing order data.' });
+// Staff API
+app.get('/api/staff', (req, res) => {
+  res.json(read('staff'));
+});
 
+// Add Product
+app.post('/api/products', (req, res) => {
   const products = read('products');
-  const staff    = read('staff');
 
-  if (!staff[staffId])
-    return res.status(400).json({ success: false, message: 'Invalid staff ID.' });
-
-  // Validate stock
-  for (const item of items) {
-    const p = products[item.id];
-    if (!p)              return res.status(400).json({ success: false, message: `Product ${item.id} not found.` });
-    if (p.quantity < item.qty) return res.status(400).json({ success: false, message: `Insufficient stock for ${p.name}.` });
-  }
-
-  // Deduct stock & build line items
-  const lineItems = items.map(item => {
-    const p = products[item.id];
-    p.quantity -= item.qty;
-    return { id: item.id, name: p.name, qty: item.qty, price: p.price };
-  });
-
-  write('products', products);
-
-  const total = lineItems.reduce((s, i) => s + i.qty * i.price, 0);
-  const order = {
-    id:       'ORD-' + uuidv4().slice(0, 8).toUpperCase(),
-    customer,
-    staffId,
-    staffName: staff[staffId],
-    items:    lineItems,
-    total,
-    date:     new Date().toISOString(),
+  const newProduct = {
+    id: uuidv4(),
+    ...req.body,
   };
 
-  const orders = read('orders');
-  orders.push(order);
-  write('orders', orders);
+  products.push(newProduct);
+  write('products', products);
 
-  res.json({ success: true, order });
+  res.json(newProduct);
 });
 
-// ── Stats (dashboard) ─────────────────────────────────────────────────────
-app.get('/api/stats', (_req, res) => {
-  const products = read('products');
-  const orders   = read('orders');
-  const staff    = read('staff');
-
-  const totalProducts   = Object.keys(products).length;
-  const inventoryValue  = Object.values(products).reduce((s, p) => s + p.price * p.quantity, 0);
-  const lowStock        = Object.values(products).filter(p => p.quantity <= 10).length;
-  const totalOrders     = orders.length;
-  const totalRevenue    = orders.reduce((s, o) => s + o.total, 0);
-  const staffCount      = Object.keys(staff).length;
-
-  res.json({ totalProducts, inventoryValue, lowStock, totalOrders, totalRevenue, staffCount });
+// Start server
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
-
-// Serve frontend
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname,'index.html'));
-});
-
-// ── Start ─────────────────────────────────────────────────────────────────
-app.listen(PORT, () => console.log(`✅  ProductHub running → http://localhost:${PORT}`));
