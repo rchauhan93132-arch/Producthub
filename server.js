@@ -37,7 +37,7 @@ function write(file, data) {
 // Admin password
 const ADMIN_PASSWORD = 'raj123';
 
-// Login API
+// ================= LOGIN API =================
 app.post('/api/auth/login', (req, res) => {
   const { password } = req.body;
 
@@ -54,22 +54,14 @@ app.post('/api/auth/login', (req, res) => {
   });
 });
 
-// Products API
+// ================= PRODUCTS =================
+
+// Get products
 app.get('/api/products', (req, res) => {
   res.json(read('products'));
 });
 
-// Orders API
-app.get('/api/orders', (req, res) => {
-  res.json(read('orders'));
-});
-
-// Staff API
-app.get('/api/staff', (req, res) => {
-  res.json(read('staff'));
-});
-
-// Add Product
+// Add product
 app.post('/api/products', (req, res) => {
   const products = read('products');
 
@@ -79,12 +71,47 @@ app.post('/api/products', (req, res) => {
   };
 
   products.push(newProduct);
+
   write('products', products);
 
   res.json(newProduct);
 });
 
-// Start server
+// ================= ORDERS =================
+
+// Get orders
+app.get('/api/orders', (req, res) => {
+  res.json(read('orders'));
+});
+
+// Create order (CHECKOUT FIX)
+app.post('/api/orders', (req, res) => {
+  const orders = read('orders');
+
+  const newOrder = {
+    id: uuidv4(),
+    date: new Date().toISOString(),
+    ...req.body,
+  };
+
+  orders.push(newOrder);
+
+  write('orders', orders);
+
+  res.json({
+    success: true,
+    order: newOrder,
+  });
+});
+
+// ================= STAFF =================
+
+app.get('/api/staff', (req, res) => {
+  res.json(read('staff'));
+});
+
+// ================= START SERVER =================
+
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`✅ ProductHub running on port ${PORT}`);
 });
