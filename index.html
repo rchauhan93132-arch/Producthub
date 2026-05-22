@@ -243,7 +243,7 @@ tbody tr:hover td{background:rgba(255,255,255,0.03)}
 
 <script>
 // ── Config ─────────────────────────────────────────────────────────────────
-const API = 'https://producthub-klkp.onrender.com';
+const API = 'https://producthub-k1kp.onrender.com';
 let cart = {};
 let myOrders = [];
 let lockTimer = null;
@@ -279,19 +279,35 @@ function showScreen(id){
 }
 function goHome(){cart={};myOrders=[];staffCache=null;showScreen('landing');}
 function loader(){return`<div class="loader-wrap"><div class="spinner"></div><span style="color:var(--text3);font-size:.85rem">Loading…</span></div>`;}
+//API
+async function api(method, path, body) {
+  try {
 
-// ── API ─────────────────────────────────────────────────────────────────────
-async function api(method,path,body){
-  try{
-    const opts={method,headers:{'Content-Type':'application/json'}};
-    if(body) opts.body=JSON.stringify(body);
-    const res=await fetch('/api'+path,opts);
+    const opts = {
+      method,
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    };
+
+    if (body) {
+      opts.body = JSON.stringify(body);
+    }
+
+    const res = await fetch(API + '/api' + path, opts);
+
+    if (!res.ok) {
+      throw new Error('Server error');
+    }
+
     return await res.json();
-  }catch(e){
-    toast('Cannot reach server — is Node.js running?','error');
+
+  } catch (e) {
+    console.error(e);
+    toast('Cannot reach server', 'error');
     return null;
   }
-}
+
 
 // ── Landing ──────────────────────────────────────────────────────────────────
 function enterRole(role){
