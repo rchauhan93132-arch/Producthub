@@ -234,14 +234,33 @@ app.post('/api/orders', (req, res) => {
       date: new Date().toISOString(),
     };
 
-    orders.push(order);
+orders.push(newOrder);
 
-    write('orders', orders);
+write('orders', orders);
 
-    res.json({
-      success: true,
-      order,
-    });
+// Reduce stock
+const products = read('products');
+
+newOrder.items.forEach(item => {
+
+  const product = products.find(p => p.id === item.id);
+
+  if (product) {
+
+    product.stock = Math.max(
+      0,
+      (product.stock || 0) - item.qty
+    );
+  }
+
+});
+
+write('products', products);
+
+res.json({
+  success: true,
+  order: newOrder,
+});
 
   } catch (err) {
     console.error(err);
