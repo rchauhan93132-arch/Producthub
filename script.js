@@ -1,0 +1,417 @@
+
+// ── Config ─────────────────────────────────────────────────────────────────
+const API = 'https://producthub-k1kp.onrender.com';
+let cart = {};
+let myOrders = [];
+let lockTimer = null;
+let lockRemaining = 0;
+let staffCache = null;
+
+// ── Background ─────────────────────────────────────────────────────────────
+(function(){
+  const c=document.getElementById('bg-canvas'),ctx=c.getContext('2d');
+  let W,H,orbs=[];
+  function resize(){W=c.width=window.innerWidth;H=c.height=window.innerHeight}
+  function init(){orbs=[{x:W*.15,y:H*.2,r:300,vx:.15,vy:.08,col:'rgba(92,77,230,0.07)'},{x:W*.8,y:H*.6,r:250,vx:-.12,vy:.1,col:'rgba(139,120,255,0.06)'},{x:W*.5,y:H*.85,r:200,vx:.1,vy:-.12,col:'rgba(52,211,153,0.05)'}]}
+  function draw(){ctx.clearRect(0,0,W,H);orbs.forEach(o=>{o.x+=o.vx;o.y+=o.vy;if(o.x<-o.r||o.x>W+o.r)o.vx*=-1;if(o.y<-o.r||o.y>H+o.r)o.vy*=-1;const g=ctx.createRadialGradient(o.x,o.y,0,o.x,o.y,o.r);g.addColorStop(0,o.col);g.addColorStop(1,'transparent');ctx.beginPath();ctx.arc(o.x,o.y,o.r,0,Math.PI*2);ctx.fillStyle=g;ctx.fill()});requestAnimationFrame(draw)}
+  window.addEventListener('resize',()=>{resize();init()});resize();init();draw();
+})();
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+const fmt = n => '₹' + Number(n).toLocaleString('en-IN');
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+function toast(msg,type='success'){
+  const t=document.getElementById('toast');
+  const icons={success:'ti-circle-check',error:'ti-alert-circle',info:'ti-info-circle'};
+  t.innerHTML=`<i class="ti ${icons[type]||icons.info}"></i> ${msg}`;
+  t.className=`toast ${type} show`;
+  clearTimeout(t._tid);
+  t._tid=setTimeout(()=>t.className='toast',3200);
+}
+
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+function goHome(){cart={};myOrders=[];staffCache=null;showScreen('landing');}
+function loader(){return`<div class="loader-wrap"><div class="spinner"></div><span style="color:var(--text3);font-size:.85rem">Loading…</span></div>`;}
+//API
+async function api(method, path, body) {
+  try {
+
+    const opts = {
+      method,
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    };
+
+    if (body) {
+      opts.body = JSON.stringify(body);
+    }
+
+    const res = await fetch(API + '/api' + path, opts);
+
+    if (!res.ok) {
+      throw new Error('Server error');
+    }
+
+    return await res.json();
+
+  } catch (e) {
+    console.error(e);
+    toast('Cannot reach server', 'error');
+    return null;
+    }
+}
+
+// ── Landing ──────────────────────────────────────────────────────────────────
+function enterRole(role){
+  if(role==='manager') openPwdModal();
+  else{
+    showScreen('customer-app');
+    setActiveNav('nav-shop');
+    loadCustPage('shop');
+  }
+}
+
+// ── Auth ─────────────────────────────────────────────────────────────────────
+function openPwdModal(){
+  document.getElementById('pwd-modal').classList.add('open');
+  document.getElementById('pwd-input').value='';
+  document.getElementById('pwd-input').disabled=false;
+  document.getElementById('pwd-error').style.display='none';
+  document.getElementById('pwd-lockout').style.display='none';
+  setTimeout(()=>document.getElementById('pwd-input').focus(),100);
+}
+function closePwdModal(){document.getElementById('pwd-modal').classList.remove('open');clearInterval(lockTimer);}
+
+async function checkPwd(){
+  if(document.getElementById('pwd-input').disabled) return;
+  const password=document.getElementById('pwd-input').value;
+  const data=await api('POST','/auth/login',{password});
+  if(!data) return;
+  if(data.success){
+    closePwdModal();
+    showScreen('manager-app');
+    document.querySelectorAll('#manager-app .nav-item').forEach(b=>b.classList.remove('active'));
+    document.querySelector('#manager-app .nav-item').classList.add('active');
+    loadMgrPage('dashboard');
+    toast('Welcome back, Manager!','success');
+  } else if(data.locked){
+    document.getElementById('pwd-error').style.display='none';
+    const lockEl=document.getElementById('pwd-lockout');
+    lockEl.textContent=data.message;lockEl.style.display='block';
+    document.getElementById('pwd-input').disabled=true;
+    lockRemaining=60;
+    lockTimer=setInterval(()=>{
+      lockRemaining--;
+      if(lockRemaining<=0){clearInterval(lockTimer);lockEl.style.display='none';document.getElementById('pwd-input').disabled=false;document.getElementById('pwd-input').focus();}
+      else lockEl.textContent=`Too many attempts! Locked for ${lockRemaining}s…`;
+    },1000);
+  } else {
+    const errEl=document.getElementById('pwd-error');
+    errEl.textContent=data.message;errEl.style.display='block';
+    document.getElementById('pwd-input').value='';
+  }
+}
+
+// ── Manager ──────────────────────────────────────────────────────────────────
+function navMgr(page,btn){
+  document.querySelectorAll('#manager-app .nav-item').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  document.getElementById('mgr-main').innerHTML=loader();
+  setTimeout(()=>loadMgrPage(page),50);
+}
+
+async function loadMgrPage(page){
+  const el=document.getElementById('mgr-main');
+  if(page==='dashboard') el.innerHTML=await buildDashboard();
+  else if(page==='products') el.innerHTML=await buildProducts();
+  else if(page==='add') el.innerHTML=buildAddForm();
+  else if(page==='staff') el.innerHTML=await buildStaff();
+  else if(page==='allorders') el.innerHTML=await buildAllOrders();
+}
+
+async function buildDashboard(){
+  const [stats,products]=await Promise.all([api('GET','/stats'),api('GET','/products')]);
+  if(!stats||!products) return`<div class="empty"><span class="empty-icon"><i class="ti ti-wifi-off"></i></span><h3>Cannot reach server</h3><p>Make sure Node.js is running on port 3000.</p></div>`;
+  return`
+  <div class="ph"><div class="ph-left"><h1>Dashboard</h1><p>Live inventory overview</p></div></div>
+  <div class="stats">
+    <div class="stat" style="--icon-c:var(--p2);--val-c:var(--p2)"><div class="stat-icon"><i class="ti ti-package"></i></div><div class="stat-label">Products</div><div class="stat-val">${stats.totalProducts}</div></div>
+    <div class="stat" style="--icon-c:var(--g);--val-c:var(--g)"><div class="stat-icon"><i class="ti ti-chart-bar"></i></div><div class="stat-label">Inventory Value</div><div class="stat-val" style="font-size:1.1rem">${fmt(stats.inventoryValue)}</div></div>
+    <div class="stat" style="--icon-c:var(--a);--val-c:var(--a)"><div class="stat-icon"><i class="ti ti-alert-triangle"></i></div><div class="stat-label">Low Stock</div><div class="stat-val">${stats.lowStock}</div></div>
+    <div class="stat" style="--icon-c:var(--g);--val-c:var(--g)"><div class="stat-icon"><i class="ti ti-receipt"></i></div><div class="stat-label">Orders</div><div class="stat-val">${stats.totalOrders}</div></div>
+    <div class="stat" style="--icon-c:var(--g);--val-c:var(--g)"><div class="stat-icon"><i class="ti ti-coin-rupee"></i></div><div class="stat-label">Revenue</div><div class="stat-val" style="font-size:1.1rem">${fmt(stats.totalRevenue)}</div></div>
+    <div class="stat"><div class="stat-icon"><i class="ti ti-users"></i></div><div class="stat-label">Staff</div><div class="stat-val">${stats.staffCount}</div></div>
+  </div>
+  <div class="card"><div class="card-head"><h3>Product Inventory</h3></div>
+  <table><thead><tr><th>ID</th><th>Name</th><th>Price</th><th>Qty</th><th>Value</th><th>Status</th></tr></thead><tbody>
+  ${Object.entries(products).map(([id,p])=>`<tr>
+    <td style="color:var(--text3);font-size:.75rem;font-weight:700">${esc(id)}</td>
+    <td style="font-weight:500">${esc(p.name)}</td><td>${fmt(p.price)}</td><td>${p.quantity}</td><td>${fmt(p.price*p.quantity)}</td>
+    <td>${p.quantity<=0?'<span class="badge badge-red">Out</span>':p.quantity<=10?'<span class="badge badge-amber">Low</span>':'<span class="badge badge-green">OK</span>'}</td>
+  </tr>`).join('')}
+  </tbody></table></div>`;
+}
+
+async function buildProducts(){
+  const products=await api('GET','/products');
+  if(!products) return'';
+  return`
+  <div class="ph"><div class="ph-left"><h1>Manage Products</h1><p>Edit or remove products</p></div></div>
+  <div class="card"><table>
+  <thead><tr><th>ID</th><th>Name</th><th>Price</th><th>Stock</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+  ${Object.entries(products).map(([id,p])=>`<tr>
+    <td style="color:var(--text3);font-size:.75rem;font-weight:700">${esc(id)}</td>
+    <td style="font-weight:500">${esc(p.name)}</td><td>${fmt(p.price)}</td><td>${p.quantity}</td>
+    <td>${p.quantity<=0?'<span class="badge badge-red">Out</span>':p.quantity<=10?'<span class="badge badge-amber">Low</span>':'<span class="badge badge-green">OK</span>'}</td>
+    <td style="display:flex;gap:.5rem">
+      <button class="btn btn-ghost btn-sm" onclick="openEditModal('${esc(id)}','${esc(p.name)}',${p.price},${p.quantity})"><i class="ti ti-edit"></i> Edit</button>
+      <button class="btn btn-danger btn-sm" onclick="delProduct('${esc(id)}')"><i class="ti ti-trash"></i></button>
+    </td>
+  </tr>`).join('')}
+  </tbody></table></div>
+  <div class="modal-bg" id="edit-modal">
+    <div class="modal">
+      <div class="modal-head"><div class="icon-box"><i class="ti ti-edit"></i></div><h3>Edit Product</h3></div>
+      <input type="hidden" id="e-id"/>
+      <div class="field"><label>Name</label><input id="e-name"/></div>
+      <div class="form-row">
+        <div class="field"><label>Price (₹)</label><input id="e-price" type="number"/></div>
+        <div class="field"><label>Quantity</label><input id="e-qty" type="number"/></div>
+      </div>
+      <div class="modal-btns">
+        <button class="btn btn-ghost" onclick="document.getElementById('edit-modal').classList.remove('open')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveEdit()"><i class="ti ti-check"></i> Save</button>
+      </div>
+    </div>
+  </div>`;
+}
+function openEditModal(id,name,price,qty){
+  document.getElementById('e-id').value=id;document.getElementById('e-name').value=name;
+  document.getElementById('e-price').value=price;document.getElementById('e-qty').value=qty;
+  document.getElementById('edit-modal').classList.add('open');
+}
+async function saveEdit(){
+  const id=document.getElementById('e-id').value;
+  const data=await api('PUT',`/products/${id}`,{name:document.getElementById('e-name').value,price:+document.getElementById('e-price').value,quantity:+document.getElementById('e-qty').value});
+  if(data?.success){document.getElementById('edit-modal').classList.remove('open');navMgr('products',null);toast('Product updated!','success');}
+  else toast(data?.message||'Error','error');
+}
+async function delProduct(id){
+  if(!confirm(`Delete product ${id}?`)) return;
+  const data=await api('DELETE',`/products/${id}`);
+  if(data?.success){navMgr('products',null);toast(data.message,'info');}
+  else toast(data?.message||'Error','error');
+}
+
+function buildAddForm(){
+  return`
+  <div class="ph"><div class="ph-left"><h1>Add Product</h1><p>Register a new item</p></div></div>
+  <div class="form-card">
+    <div class="field"><label>Product Name</label><input id="a-name" placeholder="e.g. Mechanical Keyboard"/></div>
+    <div class="form-row">
+      <div class="field"><label>Price (₹)</label><input id="a-price" type="number" min="0" placeholder="0"/></div>
+      <div class="field"><label>Quantity</label><input id="a-qty" type="number" min="0" placeholder="0"/></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-primary" onclick="addProduct()"><i class="ti ti-circle-plus"></i> Add Product</button>
+    </div>
+  </div>`;
+}
+async function addProduct(){
+  const name=document.getElementById('a-name').value.trim();
+  const price=+document.getElementById('a-price').value;
+  const quantity=+document.getElementById('a-qty').value;
+  if(!name||isNaN(price)||isNaN(quantity)){toast('Fill in all fields!','error');return;}
+  const data=await api('POST','/products',{name,price,quantity});
+  if(data?.success){document.getElementById('a-name').value='';document.getElementById('a-price').value='';document.getElementById('a-qty').value='';toast(`${data.id} — "${name}" added!`,'success');}
+  else toast(data?.message||'Error','error');
+}
+
+async function buildStaff(){
+  const staff=await api('GET','/staff');
+  if(!staff) return'';
+  return`
+  <div class="ph"><div class="ph-left"><h1>Staff</h1><p>Current team members</p></div></div>
+  <div class="card"><table><thead><tr><th>Staff ID</th><th>Name</th></tr></thead><tbody>
+  ${Object.entries(staff).map(([id,name])=>`<tr><td><span class="badge badge-purple">${esc(id)}</span></td><td style="font-weight:500"><i class="ti ti-user" style="color:var(--p2);margin-right:.5rem"></i>${esc(name)}</td></tr>`).join('')}
+  </tbody></table></div>`;
+}
+
+async function buildAllOrders(){
+  const orders=await api('GET','/orders');
+  if(!orders) return'';
+  if(!orders.length) return`<div class="ph"><div class="ph-left"><h1>All Orders</h1></div></div><div class="empty"><span class="empty-icon"><i class="ti ti-receipt-off"></i></span><h3>No orders yet</h3></div>`;
+  return`<div class="ph"><div class="ph-left"><h1>All Orders</h1><p>${orders.length} order(s)</p></div></div>${[...orders].reverse().map(renderOrderCard).join('')}`;
+}
+
+function renderOrderCard(o){
+  return`<div class="order-card">
+    <div class="order-head"><div><div class="order-id">${esc(o.id)}</div><div class="order-meta">${new Date(o.date).toLocaleString('en-IN')}</div></div><span class="badge badge-green"><i class="ti ti-check"></i> Confirmed</span></div>
+    <div class="order-customer"><i class="ti ti-user" style="color:var(--p2);margin-right:.4rem"></i>${esc(o.customer)} &nbsp;·&nbsp; ${esc(o.staffName||o.staffId)}</div>
+    ${o.items.map(i=>`<div class="bill-row"><span>${esc(i.name)} × ${i.qty}</span><span>${fmt(i.price*i.qty)}</span></div>`).join('')}
+    <div class="bill-total-row"><span>Total Paid</span><span>${fmt(o.total)}</span></div>
+  </div>`;
+}
+
+// ── Customer ──────────────────────────────────────────────────────────────────
+function setActiveNav(id){
+  document.querySelectorAll('#customer-app .nav-item').forEach(b=>b.classList.remove('active'));
+  const el=document.getElementById(id);
+  if(el) el.classList.add('active');
+}
+
+function updateCartBadge(){
+  const nav=document.getElementById('nav-cart');
+  const old=nav.querySelector('.cart-badge');
+  if(old) old.remove();
+  const count=Object.values(cart).reduce((s,v)=>s+v,0);
+  if(count>0) nav.insertAdjacentHTML('beforeend',`<span class="cart-badge">${count}</span>`);
+}
+
+async function loadCustPage(page){
+  const el=document.getElementById('cust-main');
+  el.innerHTML=loader();
+  if(page==='shop') el.innerHTML=await buildShop();
+  else if(page==='cart') el.innerHTML=await buildCart();
+  else if(page==='orders') el.innerHTML=buildMyOrders();
+  updateCartBadge();
+}
+
+function navCust(page,btn){
+  setActiveNav(btn ? btn.id : null);
+  loadCustPage(page);
+}
+
+// ── Shop ──────────────────────────────────────────────────────────────────────
+async function buildShop(){
+  const products=await api('GET','/products');
+  if(!products) return`<div class="empty"><span class="empty-icon"><i class="ti ti-wifi-off"></i></span><h3>Cannot reach server</h3><p>Make sure Node.js is running.</p></div>`;
+  const cartCount=Object.values(cart).reduce((s,v)=>s+v,0);
+  return`
+  <div class="ph">
+    <div class="ph-left"><h1>Shop</h1><p>Browse and add items to your cart</p></div>
+    <button class="btn btn-ghost" style="position:relative" onclick="setActiveNav('nav-cart');loadCustPage('cart')">
+      <i class="ti ti-basket"></i> Cart ${cartCount>0?`<span class="cart-badge" style="position:relative;top:auto;right:auto;margin-left:.3rem">${cartCount}</span>`:''}
+    </button>
+  </div>
+  <div class="product-grid">
+  ${Object.entries(products).map(([id,p])=>{
+    const qty=cart[id]||0;
+    const inStock=p.quantity>0;
+    return`<div class="pcard">
+      <div class="pcard-pid">${esc(id)}</div>
+      <div class="pcard-name">${esc(p.name)}</div>
+      <div class="pcard-price">${fmt(p.price)}</div>
+      <div>${inStock?`<span class="badge badge-green"><i class="ti ti-box"></i>${p.quantity} in stock</span>`:'<span class="badge badge-red">Out of stock</span>'}</div>
+      <div class="pcard-footer">
+        ${inStock?`
+          <div class="qty-ctrl">
+            <button onclick="changeCart('${esc(id)}',-1,${p.quantity})">&minus;</button>
+            <span>${qty}</span>
+            <button onclick="changeCart('${esc(id)}',1,${p.quantity})">+</button>
+          </div>
+          <button class="btn btn-success btn-sm" style="margin-left:auto" onclick="addToCart('${esc(id)}',${p.quantity})"><i class="ti ti-cart-plus"></i> Add</button>
+        `:'<span style="color:var(--text3);font-size:.8rem">Unavailable</span>'}
+      </div>
+    </div>`;
+  }).join('')}
+  </div>`;
+}
+
+function changeCart(id,delta,max){
+  const cur=cart[id]||0;
+  const nv=cur+delta;
+  if(nv<=0) delete cart[id];
+  else if(nv>max){toast('Not enough stock!','error');return;}
+  else cart[id]=nv;
+  setActiveNav('nav-shop');
+  loadCustPage('shop');
+}
+
+function addToCart(id,max){
+  const cur=cart[id]||0;
+  if(cur+1>max){toast('Not enough stock!','error');return;}
+  cart[id]=cur+1;
+  toast('Added to cart!','success');
+  updateCartBadge();
+  setActiveNav('nav-shop');
+  loadCustPage('shop');
+}
+
+// ── Cart ──────────────────────────────────────────────────────────────────────
+async function buildCart(){
+  const products=await api('GET','/products');
+  if(!products) return`<div class="empty"><span class="empty-icon"><i class="ti ti-wifi-off"></i></span><h3>Cannot reach server</h3></div>`;
+  const keys=Object.keys(cart).filter(k=>products[k]);
+  if(!keys.length) return`<div class="ph"><div class="ph-left"><h1>My Cart</h1></div></div><div class="empty"><span class="empty-icon"><i class="ti ti-basket-off"></i></span><h3>Cart is empty</h3><p>Go to Shop to add items.</p></div>`;
+
+  if(!staffCache) staffCache=await api('GET','/staff');
+  const staff=staffCache||{};
+  const total=keys.reduce((s,k)=>s+cart[k]*products[k].price,0);
+
+  return`
+  <div class="ph"><div class="ph-left"><h1>My Cart</h1><p>${keys.length} item type(s)</p></div></div>
+  <div class="cart-list">
+  ${keys.map(k=>`<div class="citem">
+    <div class="citem-info"><div class="citem-name">${esc(products[k].name)}</div><div class="citem-sub">${fmt(products[k].price)} each</div></div>
+    <div class="qty-ctrl">
+      <button onclick="cartQty('${esc(k)}',-1,${products[k].quantity})">&minus;</button>
+      <span>${cart[k]}</span>
+      <button onclick="cartQty('${esc(k)}',1,${products[k].quantity})">+</button>
+    </div>
+    <div class="citem-total">${fmt(cart[k]*products[k].price)}</div>
+    <button class="btn btn-danger btn-icon" onclick="removeCart('${esc(k)}')"><i class="ti ti-x"></i></button>
+  </div>`).join('')}
+  </div>
+  <div class="bill-box">
+    <div class="field"><label>Staff Member</label>
+      <select id="c-staff">
+        <option value="">-- Select staff --</option>
+        ${Object.entries(staff).map(([id,n])=>`<option value="${id}">${esc(n)} (${id})</option>`).join('')}
+      </select>
+    </div>
+    <div class="field"><label>Your Name</label><input id="c-name" placeholder="Enter your name…"/></div>
+    <div class="bill-total-row" style="margin-bottom:1.5rem"><span>Total</span><span>${fmt(total)}</span></div>
+    <div class="form-actions">
+      <button class="btn btn-primary" onclick="checkout()"><i class="ti ti-credit-card"></i> Checkout</button>
+      <button class="btn btn-danger" onclick="clearCart()"><i class="ti ti-trash"></i> Clear</button>
+    </div>
+  </div>`;
+}
+
+function cartQty(id,delta,max){
+  const cur=cart[id]||0;
+  const nv=cur+delta;
+  if(nv<=0) delete cart[id];
+  else if(nv>max){toast('Not enough stock!','error');return;}
+  else cart[id]=nv;
+  setActiveNav('nav-cart');
+  loadCustPage('cart');
+}
+function removeCart(id){delete cart[id];setActiveNav('nav-cart');loadCustPage('cart');}
+function clearCart(){cart={};setActiveNav('nav-shop');loadCustPage('shop');}
+
+async function checkout(){
+  const staffId=document.getElementById('c-staff').value;
+  const customer=document.getElementById('c-name').value.trim();
+  if(!staffId){toast('Select a staff member!','error');return;}
+  if(!customer){toast('Enter your name!','error');return;}
+  const items=Object.entries(cart).map(([id,qty])=>({id,qty}));
+  const data=await api('POST','/orders',{customer,staffId,items});
+  if(data?.success){
+    myOrders.push(data.order);cart={};staffCache=null;
+    setActiveNav('nav-orders');loadCustPage('orders');
+    toast('Order placed successfully!','success');
+  } else toast(data?.message||'Checkout failed','error');
+}
+
+// ── Orders ────────────────────────────────────────────────────────────────────
+function buildMyOrders(){
+  if(!myOrders.length) return`<div class="ph"><div class="ph-left"><h1>My Orders</h1></div></div><div class="empty"><span class="empty-icon"><i class="ti ti-receipt-off"></i></span><h3>No orders yet</h3><p>Complete a purchase to see history.</p></div>`;
+  return`<div class="ph"><div class="ph-left"><h1>My Orders</h1><p>${myOrders.length} order(s)</p></div></div>${[...myOrders].reverse().map(renderOrderCard).join('')}`;
+}
