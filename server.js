@@ -27,7 +27,12 @@ const DATA = {
 // ================= HELPERS =================
 function read(file) {
   if (!fs.existsSync(DATA[file])) {
-    fs.writeFileSync(DATA[file], JSON.stringify([]));
+
+    if (file === 'products' || file === 'staff') {
+      fs.writeFileSync(DATA[file], JSON.stringify({}));
+    } else {
+      fs.writeFileSync(DATA[file], JSON.stringify([]));
+    }
   }
 
   return JSON.parse(fs.readFileSync(DATA[file], 'utf8'));
@@ -42,74 +47,88 @@ const ADMIN_PASSWORD = 'raj123';
 
 // ================= LOGIN API =================
 app.post('/api/auth/login', (req, res) => {
+
   const { password } = req.body;
 
   if (password === ADMIN_PASSWORD) {
+
     return res.json({
       success: true,
       token: uuidv4(),
     });
+
   }
 
   return res.status(401).json({
     success: false,
     message: 'Invalid password',
   });
+
 });
 
 // ================= PRODUCTS =================
 
 // GET PRODUCTS
 app.get('/api/products', (req, res) => {
+
   res.json(read('products'));
+
 });
 
 // ADD PRODUCT
 app.post('/api/products', (req, res) => {
+
   try {
+
     const products = read('products');
 
-    const newProduct = {
-      id: uuidv4(),
+    const id = 'P' + Date.now();
+
+    products[id] = {
       name: req.body.name,
       price: Number(req.body.price),
       quantity: Number(req.body.quantity),
     };
 
-    products.push(newProduct);
-
     write('products', products);
 
     res.json({
       success: true,
-      product: newProduct,
+      id,
+      product: products[id],
     });
 
   } catch (err) {
+
     console.error(err);
 
     res.status(500).json({
       success: false,
       message: 'Failed to add product',
     });
+
   }
+
 });
 
 // UPDATE PRODUCT
 app.put('/api/products/:id', (req, res) => {
-  try {
-    const products = read('products');
-    const index = products.findIndex(p => p.id === req.params.id);
 
-    if (index === -1) {
+  try {
+
+    const products = read('products');
+    const id = req.params.id;
+
+    if (!products[id]) {
+
       return res.status(404).json({
         success: false,
         message: 'Product not found',
       });
+
     }
 
-    products[index] = {
-      ...products[index],
+    products[id] = {
       name: req.body.name,
       price: Number(req.body.price),
       quantity: Number(req.body.quantity),
@@ -119,25 +138,40 @@ app.put('/api/products/:id', (req, res) => {
 
     res.json({
       success: true,
-      product: products[index],
+      product: products[id],
     });
 
   } catch (err) {
+
     console.error(err);
 
     res.status(500).json({
       success: false,
       message: 'Failed to update product',
     });
+
   }
+
 });
 
 // DELETE PRODUCT
 app.delete('/api/products/:id', (req, res) => {
-  try {
-    let products = read('products');
 
-    products = products.filter(p => p.id !== req.params.id);
+  try {
+
+    const products = read('products');
+    const id = req.params.id;
+
+    if (!products[id]) {
+
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found',
+      });
+
+    }
+
+    delete products[id];
 
     write('products', products);
 
@@ -147,32 +181,41 @@ app.delete('/api/products/:id', (req, res) => {
     });
 
   } catch (err) {
+
     console.error(err);
 
     res.status(500).json({
       success: false,
       message: 'Failed to delete product',
     });
+
   }
+
 });
 
 // ================= ORDERS =================
 
 // GET ORDERS
 app.get('/api/orders', (req, res) => {
+
   res.json(read('orders'));
+
 });
 
 // CREATE ORDER
 app.post('/api/orders', (req, res) => {
+
   try {
+
     const { customer, staffId, items } = req.body;
 
     if (!customer || !staffId || !items || !items.length) {
+
       return res.status(400).json({
         success: false,
         message: 'Missing order data',
       });
+
     }
 
     const products = read('products');
@@ -184,127 +227,118 @@ app.post('/api/orders', (req, res) => {
 
     for (const item of items) {
 
-      const product = products.find(p => p.id === item.id);
+      const product = products[item.id];
 
       if (!product) {
+
         return res.status(404).json({
           success: false,
           message: 'Product not found',
         });
+
       }
 
       if (product.quantity < item.qty) {
+
         return res.status(400).json({
           success: false,
           message: `${product.name} out of stock`,
         });
+
       }
 
+      // Reduce stock
       product.quantity -= item.qty;
 
       orderItems.push({
-        id: product.id,
+        id: item.id,
         name: product.name,
         price: product.price,
         qty: item.qty,
       });
 
       total += product.price * item.qty;
+
     }
 
+    // Save updated products
     write('products', products);
-
-    let staffName = staff[staffId];
-
-    // if staff stored as array
-    if (!staffName && Array.isArray(staff)) {
-      const found = staff.find(s => s.id === staffId);
-      if (found) {
-        staffName = found.name;
-      }
-    }
 
     const order = {
       id: 'ORD-' + Date.now(),
       customer,
       staffId,
-      staffName: staffName || 'Unknown',
+      staffName: staff[staffId] || 'Unknown',
       items: orderItems,
       total,
       date: new Date().toISOString(),
     };
 
-orders.push(newOrder);
+    // Save order
+    orders.push(order);
 
-write('orders', orders);
+    write('orders', orders);
 
-// Reduce stock
-const products = read('products');
-
-newOrder.items.forEach(item => {
-
-  const product = products.find(p => p.id === item.id);
-
-  if (product) {
-
-    product.stock = Math.max(
-      0,
-      (product.stock || 0) - item.qty
-    );
-  }
-
-});
-
-write('products', products);
-
-res.json({
-  success: true,
-  order: newOrder,
-});
+    res.json({
+      success: true,
+      order,
+    });
 
   } catch (err) {
+
     console.error(err);
 
     res.status(500).json({
       success: false,
       message: 'Checkout failed',
     });
+
   }
+
 });
 
 // ================= STAFF =================
 
 // GET STAFF
 app.get('/api/staff', (req, res) => {
+
   res.json(read('staff'));
+
 });
 
 // ================= STATS =================
 app.get('/api/stats', (req, res) => {
+
   try {
+
     const products = read('products');
     const orders = read('orders');
     const staff = read('staff');
 
-    const totalProducts = products.length;
+    const totalProducts = Object.keys(products).length;
 
-    const inventoryValue = products.reduce(
-      (sum, p) => sum + (p.price * p.quantity),
-      0
-    );
+    let inventoryValue = 0;
+    let lowStock = 0;
 
-    const lowStock = products.filter(p => p.quantity <= 10).length;
+    Object.values(products).forEach(product => {
+
+      inventoryValue += product.price * product.quantity;
+
+      if (product.quantity <= 10) {
+        lowStock++;
+      }
+
+    });
 
     const totalOrders = orders.length;
 
-    const totalRevenue = orders.reduce(
-      (sum, o) => sum + o.total,
-      0
-    );
+    let totalRevenue = 0;
 
-    const staffCount = Array.isArray(staff)
-      ? staff.length
-      : Object.keys(staff).length;
+    orders.forEach(order => {
+      totalRevenue += order.total;
+    });
+
+    const staffCount = Object.keys(staff).length;
 
     res.json({
       totalProducts,
@@ -316,16 +350,21 @@ app.get('/api/stats', (req, res) => {
     });
 
   } catch (err) {
+
     console.error(err);
 
     res.status(500).json({
       success: false,
       message: 'Failed to load stats',
     });
+
   }
+
 });
 
 // ================= START SERVER =================
 app.listen(PORT, () => {
+
   console.log(`✅ ProductHub running on port ${PORT}`);
+
 });
